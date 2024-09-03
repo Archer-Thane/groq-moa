@@ -53,6 +53,8 @@ class MOAgent:
         inputs: Dict[str, str],
         reference_system_prompt: Optional[str] = None
     ):
+        print('concat here')
+        print(reference_system_prompt)
         reference_system_prompt = reference_system_prompt or REFERENCE_SYSTEM_PROMPT
 
         responses = ""
@@ -79,8 +81,14 @@ class MOAgent:
     ):
         reference_system_prompt = reference_system_prompt or REFERENCE_SYSTEM_PROMPT
         system_prompt = system_prompt or SYSTEM_PROMPT
-        layer_agent = MOAgent._configure_layer_agent(layer_agent_config)
-        main_agent = MOAgent._create_agent_from_system_prompt(
+        # layer_agent = MOAgent._configure_layer_agent(layer_agent_config)
+        # main_agent = MOAgent._create_agent_from_system_prompt(
+        #     system_prompt=system_prompt,
+        #     model_name=main_model,
+        #     **main_model_kwargs
+        # )
+        layer_agent = cls._configure_layer_agent(layer_agent_config, reference_system_prompt)
+        main_agent = cls._create_agent_from_system_prompt(
             system_prompt=system_prompt,
             model_name=main_model,
             **main_model_kwargs
@@ -94,7 +102,8 @@ class MOAgent:
 
     @staticmethod
     def _configure_layer_agent(
-        layer_agent_config: Optional[Dict] = None
+        layer_agent_config: Optional[Dict] = None,
+        reference_system_prompt: Optional[str] = None
     ) -> RunnableSerializable[Dict, Dict]:
         if not layer_agent_config:
             layer_agent_config = {
@@ -112,7 +121,7 @@ class MOAgent:
             )
             parallel_chain_map[key] = RunnablePassthrough() | chain
         
-        chain = parallel_chain_map | RunnableLambda(MOAgent.concat_response)
+        chain = parallel_chain_map | RunnableLambda(lambda inputs: MOAgent.concat_response(inputs, reference_system_prompt))
         return chain
 
     @staticmethod
