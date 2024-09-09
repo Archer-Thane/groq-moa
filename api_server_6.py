@@ -143,6 +143,8 @@ async def query_moa(request: QueryRequest):
         
         return QueryResponse(intermediate_responses=intermediate_responses, final_response=final_output)
     except Exception as e:
+        print ("error")
+        print (e)
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

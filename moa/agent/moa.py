@@ -67,8 +67,6 @@ class MOAgent:
         inputs: Dict[str, str],
         reference_system_prompt: Optional[str] = None
     ):
-        print('concat here')
-        print(reference_system_prompt)
         reference_system_prompt = reference_system_prompt or REFERENCE_SYSTEM_PROMPT
 
         responses = ""
