@@ -1,13 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Dict, Any, Iterable
+from typing import List, Dict, Any, AsyncGenerator
 import copy
-# Ensure these imports are correct based on your project's structure
+import json
 from groq import Groq
 from moa.agent import MOAgent
 from moa.agent.moa import ResponseChunk
 
 from functools import lru_cache
+
 # Default and recommended configurations as defined in the Streamlit app
 default_config = {
     "main_model": "llama3-70b-8192",
@@ -28,35 +29,6 @@ layer_agent_config_def = {
     "layer_agent_3": {
         "system_prompt": "You are an expert at logic and reasoning. Always take a logical approach to the answer. {helper_response}",
         "model_name": "llama3-8b-8192"
-    },
-}
-
-rec_config = {
-    "main_model": "llama3-70b-8192",
-    "cycles": 2,
-    "layer_agent_config": {}
-}
-
-layer_agent_config_rec = {
-    "layer_agent_1": {
-        "system_prompt": "Think through your response step by step. {helper_response}",
-        "model_name": "llama3-8b-8192",
-        "temperature": 0.1
-    },
-    "layer_agent_2": {
-        "system_prompt": "Respond with a thought and then your response to the question. {helper_response}",
-        "model_name": "llama3-8b-8192",
-        "temperature": 0.2
-    },
-    "layer_agent_3": {
-        "system_prompt": "You are an expert at logic and reasoning. Always take a logical approach to the answer. {helper_response}",
-        "model_name": "llama3-8b-8192",
-        "temperature": 0.4
-    },
-    "layer_agent_4": {
-        "system_prompt": "You are an expert planner agent. Create a plan for how to answer the human's query. {helper_response}",
-        "model_name": "mixtral-8x7b-32768",
-        "temperature": 0.5
     },
 }
 
@@ -103,10 +75,11 @@ def set_moa_agent(
 
 moa_agent = set_moa_agent()
 
-def stream_response(messages: Iterable[ResponseChunk]):
+# Corrected: Define stream_response as an async function
+async def stream_response(messages: AsyncGenerator[ResponseChunk, None]):
     layer_outputs = {}
     final_output = ""
-    for message in messages:
+    async for message in messages:
         if message['response_type'] == 'intermediate':
             layer = str(message['metadata']['layer'])  # Convert layer to string
             if layer not in layer_outputs:
@@ -115,14 +88,13 @@ def stream_response(messages: Iterable[ResponseChunk]):
         else:
             # Accumulate final output
             final_output += message['delta']
-            
+
     return layer_outputs, final_output
 
 @app.post("/query", response_model=QueryResponse)
 async def query_moa(request: QueryRequest):
     global moa_agent
     try:
-        print('here')
         if request.config:
             # Update MOAgent configuration based on request
             config = request.config
@@ -138,8 +110,15 @@ async def query_moa(request: QueryRequest):
         # Convert the messages history to the format expected by the MOAgent
         conversation_history = [{'role': msg.role, 'content': msg.content} for msg in request.messages]
 
-        response_stream = moa_agent.chat(conversation_history, output_format='json')
-        layer_outputs, final_output = stream_response(response_stream)
+        # Use the async chat method
+        response_stream = moa_agent.chat(
+            input=conversation_history[-1]['content'],  # Assuming last message is the user's input
+            messages=conversation_history[:-1],  # Previous messages
+            output_format='json'
+        )
+
+        # Corrected: Await the async function
+        layer_outputs, final_output = await stream_response(response_stream)
         
         intermediate_responses = [
             LayerResponse(layer=layer, agent_responses=outputs)
@@ -147,9 +126,9 @@ async def query_moa(request: QueryRequest):
         ]
         
         return QueryResponse(intermediate_responses=intermediate_responses, final_response=final_output)
+
     except Exception as e:
-        print ("error")
-        print (e)
+        print("Error:", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

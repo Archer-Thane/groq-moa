@@ -1,7 +1,6 @@
-"""
-Langchain agent
-"""
-from typing import Generator, Dict, Optional, Literal, TypedDict, List, Any
+# moa.py
+
+from typing import AsyncGenerator, Dict, Optional, Literal, TypedDict, List, Any
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
@@ -14,8 +13,6 @@ from langchain_core.output_parsers import StrOutputParser
 
 from .prompts import SYSTEM_PROMPT, REFERENCE_SYSTEM_PROMPT
 
-
-
 class MOAgentConfig(BaseModel):
     main_model: Optional[str] = None
     system_prompt: Optional[str] = None
@@ -25,7 +22,7 @@ class MOAgentConfig(BaseModel):
     max_tokens: Optional[int] = None
 
     class Config:
-        extra = "allow"  # This allows for additional fields not explicitly defined
+        extra = "allow"
 
 load_dotenv()
 valid_model_names = Literal[
@@ -42,7 +39,6 @@ class ResponseChunk(TypedDict):
     delta: str
     response_type: Literal['intermediate', 'output']
     metadata: Dict[str, Any]
-
 
 class MOAgent:
     def __init__(
@@ -93,12 +89,6 @@ class MOAgent:
     ):
         reference_system_prompt = reference_system_prompt or REFERENCE_SYSTEM_PROMPT
         system_prompt = system_prompt or SYSTEM_PROMPT
-        # layer_agent = MOAgent._configure_layer_agent(layer_agent_config)
-        # main_agent = MOAgent._create_agent_from_system_prompt(
-        #     system_prompt=system_prompt,
-        #     model_name=main_model,
-        #     **main_model_kwargs
-        # )
         layer_agent = cls._configure_layer_agent(layer_agent_config, reference_system_prompt)
         main_agent = cls._create_agent_from_system_prompt(
             system_prompt=system_prompt,
@@ -132,7 +122,8 @@ class MOAgent:
                 **value
             )
             parallel_chain_map[key] = RunnablePassthrough() | chain
-        
+
+        # Use RunnableLambda to ensure async compatibility
         chain = parallel_chain_map | RunnableLambda(lambda inputs: MOAgent.concat_response(inputs, reference_system_prompt))
         return chain
 
@@ -154,14 +145,14 @@ class MOAgent:
         chain = prompt | llm | StrOutputParser()
         return chain
 
-    def chat(
+    async def chat(
         self, 
         input: str,
         messages: Optional[List[BaseMessage]] = None,
         cycles: Optional[int] = None,
         save: bool = True,
         output_format: Literal['string', 'json'] = 'string'
-    ) -> Generator[str | ResponseChunk, None, None]:
+    ) -> AsyncGenerator[str | ResponseChunk, None]:
         cycles = cycles or self.cycles
         llm_inp = {
             'input': input,
@@ -169,7 +160,7 @@ class MOAgent:
             'helper_response': ""
         }
         for cyc in range(cycles):
-            layer_output = self.layer_agent.invoke(llm_inp)
+            layer_output = await self.layer_agent.ainvoke(llm_inp)
             l_frm_resp = layer_output['formatted_response']
             l_resps = layer_output['responses']
             
@@ -187,15 +178,15 @@ class MOAgent:
                         metadata={'layer': cyc + 1}
                     )
 
-        stream = self.main_agent.stream(llm_inp)
+        stream = self.main_agent.astream(llm_inp)
         response = ""
-        for chunk in stream:
+        async for chunk in stream:
             if output_format == 'json':
-                    yield ResponseChunk(
-                        delta=chunk,
-                        response_type='output',
-                        metadata={}
-                    )
+                yield ResponseChunk(
+                    delta=chunk,
+                    response_type='output',
+                    metadata={}
+                )
             else:
                 yield chunk
             response += chunk
